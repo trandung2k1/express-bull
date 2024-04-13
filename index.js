@@ -1,12 +1,18 @@
-import Bull from 'bull';
-import dotenv from 'dotenv';
-import express from 'express';
-import mongoose from 'mongoose';
-import Todo from './Todo.model.js';
-import { todos } from './data.js';
+const Bull = require('bull');
+const dotenv = require('dotenv');
+const express = require('express');
+const bodyParser = require('body-parser');
+const mongoose = require('mongoose');
+const { createBullBoard } = require('@bull-board/api');
+const { BullAdapter } = require('@bull-board/api/bullAdapter');
+const { ExpressAdapter } = require('@bull-board/express');
+const Todo = require('./Todo.model');
+const { todos } = require('./data');
+const serverAdapter = new ExpressAdapter();
+serverAdapter.setBasePath('/admin/queues');
 const app = express();
-app.use(express.json());
-app.use(express.urlencoded());
+app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: false }));
 const port = 4000;
 dotenv.config();
 const { REDIS_HOST, REDIS_PORT, MONGODB_URI } = process.env;
@@ -27,9 +33,13 @@ const { REDIS_HOST, REDIS_PORT, MONGODB_URI } = process.env;
 const redisOptions = {
     redis: { host: REDIS_HOST, port: REDIS_PORT },
 };
-
 // DEFINE QUEUE
 const todoQueue = new Bull('todo', redisOptions);
+
+const { addQueue, removeQueue, setQueues, replaceQueues } = createBullBoard({
+    queues: [new BullAdapter(todoQueue)],
+    serverAdapter: serverAdapter,
+});
 
 // REGISTER PROCESSER
 async function insertRecord(item) {
@@ -47,7 +57,7 @@ todoQueue.process((job, done) => {
             }, 2000);
         } catch (error) {
             console.error(error);
-            job.log(`Import row error: ${error}`);
+            job.log(`const row error: ${error}`);
         }
     }
     setTimeout(() => {
@@ -57,8 +67,9 @@ todoQueue.process((job, done) => {
     job.progress(100 + '%');
 });
 
-//ADD JOB TO THE QUEUE
+app.use('/admin/queues', serverAdapter.getRouter());
 
+//ADD JOB TO THE QUEUE
 app.get('/', (req, res) => {
     todoQueue.add(todos);
     return res.status(200).json({
@@ -78,8 +89,9 @@ app.get('/blocked', (req, res) => {
     return res.status(200).json({ msg: 'blocked', total: total });
 });
 
-app.listen(port);
-
+app.listen(port, function () {
+    console.log(`App listening on http://localhost:${port}`);
+});
 // burgerQueue.add([
 //   { bun: '🍔' },
 //   { cheese: '🧀' },
